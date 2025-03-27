@@ -4,7 +4,7 @@ Configuration globale pour le système d'agents IA.
 
 # Configuration Ollama
 OLLAMA_BASE_URL = "http://localhost:11434"
-MODEL_NAME = "mistral"  # Modèle par défaut (peut être changé selon vos besoins)
+MODEL_NAME = "deepseek-r1:1.5b"  # Modèle par défaut (peut être changé selon vos besoins)
 MODEL_PARAMS = {
     "temperature": 0.7,
     "top_p": 0.9,
