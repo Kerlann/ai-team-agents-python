@@ -57,12 +57,28 @@ class OllamaClient:
                     raise ValueError(f"Méthode HTTP non supportée: {method}")
                 
                 response.raise_for_status()  # Lever une exception pour les codes d'erreur HTTP
-                return response.json()
+                
+                # Pour l'API de génération qui peut renvoyer des réponses par streaming
+                if endpoint == "api/generate":
+                    try:
+                        # Essayer de traiter comme un seul objet JSON
+                        return response.json()
+                    except json.JSONDecodeError:
+                        # Si échec, traiter comme des objets JSON séparés par des lignes
+                        lines = response.text.strip().split('\n')
+                        if lines:
+                            try:
+                                return json.loads(lines[-1])  # Retourner le dernier objet JSON
+                            except json.JSONDecodeError:
+                                logger.error(f"Impossible de parser la réponse JSON: {lines}")
+                                raise
+                else:
+                    return response.json()
             
-            except RequestException as e:
+            except Exception as e:
                 retries += 1
                 wait_time = 2 ** retries  # Backoff exponentiel
-                logger.warning(f"Erreur lors de la requête à {url}: {e}. Nouvelle tentative dans {wait_time}s...")
+                logger.warning(f"Erreur lors de la requête à {url}: {str(e)}. Nouvelle tentative dans {wait_time}s...")
                 time.sleep(wait_time)
         
         raise ConnectionError(f"Impossible de se connecter à l'API Ollama après {max_retries} tentatives")
@@ -100,19 +116,27 @@ class OllamaClient:
         # Préparer les données de la requête
         data = {
             "model": model,
-            "prompt": prompt,
-            **params
+            "prompt": prompt
         }
+        
+        # Ajouter les autres paramètres séparément pour éviter les problèmes de structure
+        for key, value in params.items():
+            if key not in data:
+                data[key] = value
         
         # Effectuer la requête
         logger.debug(f"Envoi du prompt au modèle {model}: {prompt[:100]}...")
-        response = self._make_request("api/generate", data=data)
-        
-        # Extraire et retourner la réponse
-        generated_text = response.get("response", "")
-        logger.debug(f"Réponse reçue: {generated_text[:100]}...")
-        
-        return generated_text
+        try:
+            response = self._make_request("api/generate", data=data)
+            
+            # Extraire et retourner la réponse
+            generated_text = response.get("response", "")
+            logger.debug(f"Réponse reçue: {generated_text[:100]}...")
+            
+            return generated_text
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération: {str(e)}")
+            return f"Erreur: Impossible de générer une réponse - {str(e)}"
     
     def chat(self, messages: List[Dict[str, str]], model: str = config.MODEL_NAME,
             system_prompt: Optional[str] = None, **kwargs) -> str:
@@ -138,19 +162,27 @@ class OllamaClient:
         # Préparer les données de la requête
         data = {
             "model": model,
-            "messages": messages,
-            **params
+            "messages": messages
         }
+        
+        # Ajouter les autres paramètres séparément
+        for key, value in params.items():
+            if key not in data:
+                data[key] = value
         
         # Effectuer la requête
         logger.debug(f"Envoi de {len(messages)} messages au modèle {model}")
-        response = self._make_request("api/chat", data=data)
-        
-        # Extraire et retourner la réponse
-        generated_text = response.get("message", {}).get("content", "")
-        logger.debug(f"Réponse reçue: {generated_text[:100]}...")
-        
-        return generated_text
+        try:
+            response = self._make_request("api/chat", data=data)
+            
+            # Extraire et retourner la réponse
+            generated_text = response.get("message", {}).get("content", "")
+            logger.debug(f"Réponse reçue: {generated_text[:100]}...")
+            
+            return generated_text
+        except Exception as e:
+            logger.error(f"Erreur lors du chat: {str(e)}")
+            return f"Erreur: Impossible de générer une réponse - {str(e)}"
     
     def pull_model(self, model_name: str) -> bool:
         """Télécharge un modèle s'il n'est pas déjà disponible localement.
