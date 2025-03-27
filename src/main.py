@@ -68,8 +68,12 @@ def interactive_mode():
             
         print("\nTraitement en cours...")
         result = team.solve_task(task)
+        
         print("\n=== RÉSULTAT ===\n")
-        print(result)
+        if result:
+            print(result)
+        else:
+            print("Aucun résultat généré. Vérifiez les journaux pour plus d'informations.")
 
 
 def execute_single_task(task, output_path=None):
@@ -78,12 +82,26 @@ def execute_single_task(task, output_path=None):
     result = team.solve_task(task)
     
     print("\n=== RÉSULTAT ===\n")
-    print(result)
+    if result:
+        try:
+            # Utiliser des print pour éviter les problèmes d'affichage
+            result_lines = result.split('\n')
+            for line in result_lines:
+                print(line)
+        except Exception as e:
+            print(f"Erreur lors de l'affichage du résultat: {e}")
+            print(f"Longueur du résultat: {len(result)}")
+            print(f"Début du résultat: {result[:200]}...")
+    else:
+        print("Aucun résultat généré. Vérifiez les journaux pour plus d'informations.")
     
     if output_path:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(result)
-        print(f"\nRésultat sauvegardé dans {output_path}")
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(result if result else "Aucun résultat généré")
+            print(f"\nRésultat sauvegardé dans {output_path}")
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde du résultat: {e}")
 
 
 def main():
