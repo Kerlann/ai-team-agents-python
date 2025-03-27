@@ -54,6 +54,29 @@ class AITeam:
             logger.info(f"Résolution de tâche: {task_description[:100]}...")
             start_time = time.time()
             
+            # Solution simplifiée pour des résultats rapides et fiables
+            if len(task_description) < 100:  # Si la tâche est courte, utilisez directement le manager
+                logger.info("Tâche courte, utilisation directe du manager")
+                prompt = f"""
+                {task_description}
+                
+                Veuillez fournir une solution complète pour cette tâche. 
+                Incluez:
+                1. Une explication de l'approche
+                2. Du code d'exemple pour le frontend (HTML/CSS/JS)
+                3. Du code d'exemple pour le backend (API, base de données)
+                4. Des instructions d'intégration
+                
+                Soyez concis mais complet.
+                """
+                final_solution = self.manager.process(prompt, {"task": task_description})
+                
+                # Finaliser le résultat
+                duration = time.time() - start_time
+                logger.info(f"Tâche résolue directement en {duration:.2f} secondes")
+                
+                return final_solution
+            
             # Générer un ID pour la tâche
             import uuid
             task_id = str(uuid.uuid4())[:8]
@@ -61,115 +84,31 @@ class AITeam:
             
             # Analyser la tâche avec le manager
             logger.info("Étape 1: Analyse de la tâche par le manager")
-            task_analysis = self.manager.analyze_task(task_description)
-            self.state["tasks"][task_id] = {
-                "description": task_description,
-                "analysis": task_analysis,
-                "frontend_results": [],
-                "backend_results": [],
-                "status": "analyzed",
-                "start_time": start_time
-            }
+            prompt = f"""
+            Analysez cette tâche et fournissez une description détaillée de la solution:
             
-            # Traiter les sous-tâches frontend et backend
-            frontend_tasks = task_analysis.get("frontend_tasks", [])
-            backend_tasks = task_analysis.get("backend_tasks", [])
+            {task_description}
             
-            logger.info(f"Étape 2: Traitement de {len(frontend_tasks)} tâches frontend et {len(backend_tasks)} tâches backend")
+            Votre solution doit inclure:
+            1. Une explication de l'approche
+            2. Du code d'exemple pour le frontend (HTML/CSS/JS)
+            3. Du code d'exemple pour le backend (API, base de données)
+            4. Des instructions d'intégration
             
-            # Exécuter les tâches frontend
-            for i, task in enumerate(frontend_tasks):
-                # Vérifier le timeout
-                if time.time() - start_time > timeout:
-                    logger.warning(f"Timeout atteint après {i} tâches frontend")
-                    break
-                    
-                logger.info(f"Tâche frontend {i+1}/{len(frontend_tasks)}: {task[:50]}...")
-                
-                # Créer l'assignation de tâche
-                task_assignment = self.manager.create_task_assignment(task_analysis, "frontend_dev", i)
-                
-                # Exécuter la tâche
-                frontend_solution = self.frontend_dev.execute_task(task_assignment)
-                
-                # Réviser le travail
-                review = self.manager.review_work(task_analysis, "frontend_dev", frontend_solution)
-                
-                # Enregistrer le résultat
-                self.state["tasks"][task_id]["frontend_results"].append({
-                    "task": task,
-                    "solution": frontend_solution,
-                    "review": review,
-                    "approved": review.get("approved", False)
-                })
-            
-            # Exécuter les tâches backend
-            for i, task in enumerate(backend_tasks):
-                # Vérifier le timeout
-                if time.time() - start_time > timeout:
-                    logger.warning(f"Timeout atteint après {i} tâches backend")
-                    break
-                    
-                logger.info(f"Tâche backend {i+1}/{len(backend_tasks)}: {task[:50]}...")
-                
-                # Créer l'assignation de tâche
-                task_assignment = self.manager.create_task_assignment(task_analysis, "backend_dev", i)
-                
-                # Exécuter la tâche
-                backend_solution = self.backend_dev.execute_task(task_assignment)
-                
-                # Réviser le travail
-                review = self.manager.review_work(task_analysis, "backend_dev", backend_solution)
-                
-                # Enregistrer le résultat
-                self.state["tasks"][task_id]["backend_results"].append({
-                    "task": task,
-                    "solution": backend_solution,
-                    "review": review,
-                    "approved": review.get("approved", False)
-                })
-            
-            # Intégrer les solutions
-            logger.info("Étape 3: Intégration des solutions par le manager")
-            
-            # Gérer le cas où il n'y a pas de tâches
-            if not frontend_tasks and not backend_tasks:
-                # Demander directement au manager de résoudre la tâche complète
-                logger.info("Aucune sous-tâche trouvée, demandant au manager de résoudre directement")
-                direct_prompt = f"""
-                Aucune sous-tâche n'a été identifiée pour cette tâche. 
-                Veuillez fournir une solution complète pour la tâche suivante:
-                
-                {task_description}
-                
-                Incluez à la fois les aspects frontend et backend dans votre solution. 
-                Fournissez du code exemplaire et des explications détaillées.
-                """
-                final_solution = self.manager.process(direct_prompt, {"task": task_description})
-            else:
-                # Extraire les solutions frontend et backend approuvées
-                frontend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["frontend_results"] if res.get("approved", False)])
-                backend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["backend_results"] if res.get("approved", False)])
-                
-                # Si aucune solution n'est approuvée, utiliser toutes les solutions
-                if not frontend_solutions:
-                    frontend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["frontend_results"]])
-                if not backend_solutions:
-                    backend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["backend_results"]])
-                
-                # Intégrer les solutions
-                final_solution = self.manager.integrate_solutions(
-                    task_analysis,
-                    frontend_solutions,
-                    backend_solutions
-                )
+            Soyez détaillé et complet.
+            """
+            final_solution = self.manager.process(prompt, {"task": task_description})
             
             # Finaliser le résultat
             duration = time.time() - start_time
-            self.state["tasks"][task_id]["status"] = "completed"
-            self.state["tasks"][task_id]["end_time"] = time.time()
-            self.state["tasks"][task_id]["duration"] = duration
-            self.state["tasks"][task_id]["final_solution"] = final_solution
+            self.state["tasks"][task_id] = {
+                "description": task_description,
+                "status": "completed",
+                "start_time": start_time,
+                "end_time": time.time(),
+                "duration": duration,
+                "final_solution": final_solution
+            }
             
             # Enregistrer le résultat final
             self.state["results"][task_id] = {
