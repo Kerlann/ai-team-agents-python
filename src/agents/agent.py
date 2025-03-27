@@ -8,6 +8,7 @@ import json
 import time
 from datetime import datetime
 import uuid
+import traceback
 
 from src.llm.ollama_client import OllamaClient
 from src.utils.logger import get_logger
@@ -53,22 +54,57 @@ class Agent:
         Returns:
             str: Réponse générée par l'agent
         """
-        # Préparer le contexte
-        full_context = self._prepare_context(context)
-        
-        # Construire le prompt complet
-        prompt = self._build_prompt(message, full_context)
-        
-        # Générer la réponse via le modèle de langage
-        start_time = time.time()
-        response = self.llm_client.generate(prompt, model=self.model, system_prompt=self.system_prompt)
-        processing_time = time.time() - start_time
-        
-        # Enregistrer l'interaction dans l'historique
-        self._update_history(message, response, context)
-        
-        logger.info(f"Agent {self.name} a traité un message en {processing_time:.2f}s")
-        return response
+        try:
+            # Préparer le contexte
+            full_context = self._prepare_context(context)
+            
+            # Construire le prompt complet
+            prompt = self._build_prompt(message, full_context)
+            
+            # Générer la réponse via le modèle de langage
+            start_time = time.time()
+            
+            # Utiliser un système de backoff pour les tentatives
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    response = self.llm_client.generate(prompt, model=self.model, system_prompt=self.system_prompt)
+                    
+                    # Vérifier si la réponse est vide ou invalide
+                    if not response or response.strip() == "":
+                        raise ValueError("Réponse vide du modèle")
+                        
+                    processing_time = time.time() - start_time
+                    logger.info(f"Agent {self.name} a traité un message en {processing_time:.2f}s")
+                    
+                    # Enregistrer l'interaction dans l'historique
+                    self._update_history(message, response, context)
+                    
+                    return response
+                except Exception as e:
+                    if attempt < max_attempts:
+                        logger.warning(f"Tentative {attempt} échouée: {str(e)}. Nouvel essai...")
+                        time.sleep(2 * attempt)  # Backoff exponentiel
+                    else:
+                        raise
+            
+            # Si nous arrivons ici, toutes les tentatives ont échoué
+            raise Exception("Toutes les tentatives ont échoué")
+            
+        except Exception as e:
+            error_msg = f"Erreur lors du traitement du message: {str(e)}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            
+            # Retourner un message d'erreur formaté
+            return f"""
+            ERREUR DE TRAITEMENT
+            
+            Je n'ai pas pu traiter cette demande en raison d'une erreur:
+            {str(e)}
+            
+            Veuillez simplifier votre requête ou réessayer.
+            """
     
     def chat(self, messages: List[Dict[str, str]], context: Optional[Dict[str, Any]] = None) -> str:
         """Traite une conversation et génère une réponse.
@@ -80,29 +116,44 @@ class Agent:
         Returns:
             str: Réponse générée par l'agent
         """
-        # Préparer le contexte
-        full_context = self._prepare_context(context)
-        
-        # Ajouter le contexte au premier message si nécessaire
-        if full_context and messages:
-            # Trouver le premier message utilisateur
-            for i, msg in enumerate(messages):
-                if msg.get("role") == "user":
-                    # Ajouter le contexte au message
-                    context_str = f"\n\nCONTEXTE:\n{json.dumps(full_context, indent=2, ensure_ascii=False)}"
-                    messages[i]["content"] = msg["content"] + context_str
-                    break
-        
-        # Générer la réponse via le modèle de langage
-        start_time = time.time()
-        response = self.llm_client.chat(messages, model=self.model, system_prompt=self.system_prompt)
-        processing_time = time.time() - start_time
-        
-        # Enregistrer l'interaction dans l'historique
-        self._update_history(messages[-1]["content"] if messages else "", response, context)
-        
-        logger.info(f"Agent {self.name} a traité une conversation en {processing_time:.2f}s")
-        return response
+        try:
+            # Préparer le contexte
+            full_context = self._prepare_context(context)
+            
+            # Ajouter le contexte au premier message si nécessaire
+            if full_context and messages:
+                # Trouver le premier message utilisateur
+                for i, msg in enumerate(messages):
+                    if msg.get("role") == "user":
+                        # Ajouter le contexte au message
+                        context_str = f"\n\nCONTEXTE:\n{json.dumps(full_context, indent=2, ensure_ascii=False)}"
+                        messages[i]["content"] = msg["content"] + context_str
+                        break
+            
+            # Générer la réponse via le modèle de langage
+            start_time = time.time()
+            response = self.llm_client.chat(messages, model=self.model, system_prompt=self.system_prompt)
+            processing_time = time.time() - start_time
+            
+            # Enregistrer l'interaction dans l'historique
+            self._update_history(messages[-1]["content"] if messages else "", response, context)
+            
+            logger.info(f"Agent {self.name} a traité une conversation en {processing_time:.2f}s")
+            return response
+        except Exception as e:
+            error_msg = f"Erreur lors du traitement de la conversation: {str(e)}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            
+            # Retourner un message d'erreur formaté
+            return f"""
+            ERREUR DE TRAITEMENT
+            
+            Je n'ai pas pu traiter cette conversation en raison d'une erreur:
+            {str(e)}
+            
+            Veuillez simplifier votre requête ou réessayer.
+            """
     
     def _prepare_context(self, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Prépare le contexte complet pour le traitement.
@@ -137,10 +188,15 @@ class Agent:
         Returns:
             str: Prompt complet
         """
-        # Construire le prompt avec le contexte
-        context_str = json.dumps(context, indent=2, ensure_ascii=False)
-        prompt = f"{message}\n\nCONTEXTE:\n{context_str}"
-        
+        # Construire un prompt plus simple pour faciliter le traitement
+        prompt = f"""
+{message}
+
+Votre rôle est: {self.role}
+Votre nom est: {self.name}
+
+Veuillez fournir une réponse claire et détaillée.
+"""
         return prompt
     
     def _update_history(self, message: str, response: str, context: Optional[Dict[str, Any]] = None):
