@@ -138,14 +138,28 @@ class AITeam:
         if not frontend_solutions:
             frontend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["frontend_results"]])
         if not backend_solutions:
-            backend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["backend_solutions"]])
+            backend_solutions = "\n\n".join([res["solution"] for res in self.state["tasks"][task_id]["backend_results"]])
         
-        # Intégrer les solutions
-        final_solution = self.manager.integrate_solutions(
-            task_analysis,
-            frontend_solutions,
-            backend_solutions
-        )
+        # Gérer le cas où il n'y a pas de tâches
+        if not frontend_tasks and not backend_tasks:
+            # Demander directement au manager de résoudre la tâche complète
+            logger.info("Aucune sous-tâche trouvée, demandant au manager de résoudre directement")
+            direct_prompt = f"""
+            Aucune sous-tâche n'a été identifiée pour cette tâche. 
+            Veuillez fournir une solution complète pour la tâche suivante:
+            
+            {task_description}
+            
+            Incluez à la fois les aspects frontend et backend dans votre solution.
+            """
+            final_solution = self.manager.process(direct_prompt, {"task": task_description})
+        else:
+            # Intégrer les solutions
+            final_solution = self.manager.integrate_solutions(
+                task_analysis,
+                frontend_solutions,
+                backend_solutions
+            )
         
         # Finaliser le résultat
         duration = time.time() - start_time
